@@ -27,6 +27,7 @@ class MainWindow(QMainWindow):
         self.initUI()
         self.bluetooth_client = None
         self.ser = serial.Serial('COM3', 9600, timeout=1)
+        self.buffer_serial = bytearray()
 
     def __del__(self):
         self.ser.close()
@@ -66,15 +67,14 @@ class MainWindow(QMainWindow):
         T = 10e-3
         x = np.linspace(-1* T * (n - 1), 0, n)
         y = np.zeros(n)
-        y = np.zeros(n)
-        y = np.zeros(n)
         self.ax.set_xlim(x[0], x[-1])
         self.ax.set_ylim(-100, 100)
-
+        # Default ax configuration
+        self.ax.set_facecolor("#fff7df") # lightgoldenrodyellow
+        self.ax.grid(True, which='major', linestyle='--', linewidth=0.7, color='black')
         self.hPlotLeftMotor = self.ax.plot(x, y, label="left pow")
         self.hPlotSensor = self.ax.plot(x, y, label="line pos")
         self.hPlotRightMotor = self.ax.plot(x, y, label="right pow")
-
         self.ax.legend()
         self.canvas.draw()
 
@@ -224,21 +224,13 @@ class MainWindow(QMainWindow):
         self.ser.write([249, ref_pow + 100])
 
     def decode_serial_data(self):
-        # # TEMP
-        # t = np.linspace(0, 10, 1000)
-        # elapsed = time.time() - self.start_time
-        # y1 = 100 * np.sin(t + elapsed)
-        # y2 = 100 * np.cos(t + elapsed)
-        # y3 = 100 * np.sin(t) * np.cos(t + elapsed)
-        # return np.array(y1), np.array(y2), np.array(y3)
-
         if self.ser.in_waiting > 0:
             incoming_data = self.ser.read(self.ser.in_waiting)
-            # print(f"Data: {incoming_data}")
+            self.buffer_serial.extend(incoming_data)
         else:
             return np.array([]), np.array([]), np.array([])
         
-        data = list(incoming_data)  # make it iterable by ints
+        data = self.buffer_serial  # make it iterable by ints
         n_max = len(data)
 
         sensors = []
@@ -252,23 +244,14 @@ class MainWindow(QMainWindow):
                 # not aligned → shift by one and try again
                 i += 1
                 continue
-            # Valid frame from robot, each 10 ms:
-            # 201 +         # Code
-            # [0, 200] +    # Line Sensor
-            # [0, 200] +    # Left Motor Power
-            # [0, 200] +    # Right Motor Power
             sensors.append(frame[1] - 100)
             lefts.append(frame[2] - 100)
             rights.append(frame[3] - 100)
             i += 4  # jump to next potential frame
-            
-        # TODO Store unprocessed data in the next call
 
-        # # Print last frame for debugging purposes
-        # print(f"Frame: {frame}")
-        # print(f"  Sensor: {sensors[-1]}")
-        # print(f"  Left: {lefts[-1]}")
-        # print(f"  Right: {rights[-1]}")
+        # Store leftover (incomplete) bytes for next call
+        self.buffer_serial = bytearray(data[i:])
+
         return np.array(lefts), np.array(sensors), np.array(rights)
     
     def update_plot(self):
